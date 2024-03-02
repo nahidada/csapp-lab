@@ -28,8 +28,21 @@ team_t team = {
     /* First member's full name */
     "Nahida",
     /* First member's email address */
-    "nahida@cs.cmu.edu"
+    "nahida@cs.cmu.edu",
+    "",
+    ""
 };
+
+#define DEBUG_LOG_FILE "debug.log"
+
+#define DEBUG_PRINT(fmt, ...) \
+    do { \
+        FILE *debug_log_file = fopen(DEBUG_LOG_FILE, "a"); \
+        if (debug_log_file != NULL) { \
+            fprintf(debug_log_file, "[%s:%d:%s] " fmt "\n", __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+            fclose(debug_log_file); \
+        } \
+    } while (0)
 
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 4
@@ -63,8 +76,8 @@ team_t team = {
 #define FOOTER(bp) ((char *)(bp) + GET_SIZE(HEADER(bp)) - DSIZE)
 
 //get next and prev block ptr
-#define GET_NEXTBP(bp) (bp + GET_SIZE(((char*)(bp) - WSIZE)))
-#define GET_PREVBP(bp) (bp - GET_SIZE(((char *)(bp) - DSIZE)))
+#define GET_NEXTBP(bp) ((char *)bp + GET_SIZE(HEADER(bp)))
+#define GET_PREVBP(bp) ((char *)bp - GET_SIZE(((char *)(bp) - DSIZE)))
 
 //get pred and succ block ptr at the free blk
 #define GET_PREDP(bp) ((char *)(bp) + WSIZE)
@@ -94,13 +107,33 @@ static char* LIFO(char *bp, char *root);
 static void delete_blk(char * bp);
 static char* add_blk(char * bp);
 static int get_index(size_t size);
-
+static void print_seglist();
 
 //extend heap
 static void * extend_heap(size_t words);
 
-
 #define SEG_LEN 9
+
+static void print_seglist(){
+    int i=0;
+    char * seg_root;
+    char * succ;
+
+    for(i=0; i<SEG_LEN; i++){
+        seg_root = seglist + i * WSIZE;
+        succ = SUCC(seg_root);
+        DEBUG_PRINT("%d th root at %p", i, seg_root);
+
+        while (succ !=NULL)
+        {
+            DEBUG_PRINT("--> %p, %d",succ, GET_SIZE(HEADER(succ))); 
+            succ = SUCC(succ);  
+        }
+
+        DEBUG_PRINT("--> %p, %d",succ, GET_SIZE(HEADER(succ))); 
+        return;
+    }
+}
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -111,17 +144,30 @@ int mm_init(void)
         return -1;
     }
     seglist = heap_listp;
+
+    char * heap_hi = mem_heap_hi();
+    
+    DEBUG_PRINT("seglist %p", seglist);
+    DEBUG_PRINT("seglist hi %p", heap_hi);
+
     int i =0;
     for(i=0; i<SEG_LEN; i++){
         PUT(heap_listp+(i*WSIZE), NULL);
+        // DEBUG_PRINT("seglist %d th root %p",i, heap_listp+(i*WSIZE));
     }
-    heap_listp = heap_listp + (SEG_LEN * WSIZE);
+    heap_listp = heap_listp + ((SEG_LEN-1) * WSIZE);
+
     //prologue header
-    PUT(heap_listp+(SEG_LEN+1), PACK(WSIZE,1));
+    PUT(heap_listp+1*WSIZE, PACK(DSIZE,1));
+    DEBUG_PRINT("prologue header %p", heap_listp+1*WSIZE);
+    
     //prologue footer
-    PUT(heap_listp+(SEG_LEN+2), PACK(WSIZE,1));
+    PUT(heap_listp+2*WSIZE, PACK(DSIZE,1));
+    DEBUG_PRINT("prologue footer %p", heap_listp+2*WSIZE);
+
     //epilogue header
-    PUT(heap_listp+(SEG_LEN+3), PACK(0,1));
+    PUT(heap_listp+3*WSIZE, PACK(0,1));
+    DEBUG_PRINT("epilogue header %p", heap_listp+3*WSIZE);
 
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL){
         return -1;
@@ -144,12 +190,17 @@ static void * extend_heap(size_t words){
     if(bp == (void *)-1){
         return NULL;
     }
+    DEBUG_PRINT("bp %p , size %d", bp, size);
 
     PUT(HEADER(bp), PACK(size, 0));
+    DEBUG_PRINT("bp header %p, size %d", HEADER(bp), GET_SIZE(HEADER(bp)));
+
     PUT(FOOTER(bp), PACK(size, 0));
+    DEBUG_PRINT("bp footer %p, size %d", FOOTER(bp), GET_SIZE(HEADER(bp)));
 
     //new epilogue block, update the address of epilogue block
     PUT(HEADER(GET_NEXTBP(bp)), PACK(0,1));
+    DEBUG_PRINT("new epilogue blk %p", HEADER(GET_NEXTBP(bp)));
 
     PUT(GET_PREDP(bp), NULL);
     PUT(GET_SUCCP(bp), NULL);
@@ -160,12 +211,23 @@ static void * extend_heap(size_t words){
     return bp;
 }
 
-static void * imme_coalesce(void * bp){
+static void * imme_coalesce(void* bp){
+    char * header_bp = HEADER(bp);
+    size_t bp_size = GET_SIZE(header_bp);
+
+    DEBUG_PRINT("bp %p, header_bp %p, bp size %d", bp ,header_bp, bp_size);
+
     char * next_blk = GET_NEXTBP(bp);
     char * prev_blk = GET_PREVBP(bp);
 
-    int next_blk_alloc = GET_ALLOC(next_blk);
+    DEBUG_PRINT("next_blk %p", next_blk);
+    DEBUG_PRINT("prev_blk %p", prev_blk);
+
+    int next_blk_alloc = GET_ALLOC(HEADER(next_blk));
     int prev_blk_alloc = GET_ALLOC(prev_blk);
+
+    DEBUG_PRINT("next_blk_alloc %d", next_blk_alloc);
+    DEBUG_PRINT("prev_blk_alloc %d", prev_blk_alloc);
 
     size_t size = GET_SIZE(HEADER(bp));
 
