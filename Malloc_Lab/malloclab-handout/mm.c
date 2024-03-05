@@ -32,6 +32,7 @@ team_t team = {
     "",
     ""
 };
+#define DEBUG_LEVEL 1
 
 #define DEBUG_LOG_FILE "debug.log"
 
@@ -40,6 +41,16 @@ team_t team = {
         FILE *debug_log_file = fopen(DEBUG_LOG_FILE, "a"); \
         if (debug_log_file != NULL) { \
             fprintf(debug_log_file, "[%s:%d:%s] " fmt "\n", __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+            fclose(debug_log_file); \
+        } \
+    } while (0)
+
+
+#define LIST_PRINT(fmt, ...) \
+    do { \
+        FILE *debug_log_file = fopen(DEBUG_LOG_FILE, "a"); \
+        if (debug_log_file != NULL) { \
+            fprintf(debug_log_file, "[%s:%d:%s] " fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
             fclose(debug_log_file); \
         } \
     } while (0)
@@ -77,7 +88,8 @@ team_t team = {
 
 //get next and prev block ptr
 #define GET_NEXTBP(bp) ((char *)bp + GET_SIZE(HEADER(bp)))
-#define GET_PREVBP(bp) ((char *)bp - GET_SIZE(((char *)(bp) - DSIZE)))
+// #define GET_PREVBP(bp) ((char *)bp - GET_SIZE(((char *)(bp) - DSIZE)))
+#define GET_PREVBP(bp) ((char*)(bp) - GET_SIZE((char*)(bp) - DSIZE))
 
 //get pred and succ block ptr at the free blk
 #define GET_PREDP(bp) ((char *)(bp) + WSIZE)
@@ -117,22 +129,32 @@ static void * extend_heap(size_t words);
 static void print_seglist(){
     int i=0;
     char * seg_root;
-    char * succ;
+    char * node;
 
     for(i=0; i<SEG_LEN; i++){
         seg_root = seglist + i * WSIZE;
-        succ = SUCC(seg_root);
-        DEBUG_PRINT("%d th root at %p", i, seg_root);
+        node = seglist + i * WSIZE;
+        
+        LIST_PRINT("%d th root at %p", i, seg_root);
 
-        while (succ !=NULL)
+        while (SUCC(node))
         {
-            DEBUG_PRINT("--> %p, %d",succ, GET_SIZE(HEADER(succ))); 
-            succ = SUCC(succ);  
+            node = SUCC(node);
+            LIST_PRINT("--> %p, %d",node , GET_SIZE(HEADER(node)));   
         }
 
-        DEBUG_PRINT("--> %p, %d",succ, GET_SIZE(HEADER(succ))); 
-        return;
+        LIST_PRINT("--> %p \n",SUCC(node)); 
+
+        while (node != seg_root)
+        {   
+            LIST_PRINT("<-- %p, %d", node, GET_SIZE(HEADER(node)));
+            node = PRED(node);
+             
+        }
+
+        LIST_PRINT("<-- %p \n",node);
     }
+    return;
 }
 /* 
  * mm_init - initialize the malloc package.
@@ -145,10 +167,7 @@ int mm_init(void)
     }
     seglist = heap_listp;
 
-    char * heap_hi = mem_heap_hi();
-    
     DEBUG_PRINT("seglist %p", seglist);
-    DEBUG_PRINT("seglist hi %p", heap_hi);
 
     int i =0;
     for(i=0; i<SEG_LEN; i++){
@@ -190,18 +209,17 @@ static void * extend_heap(size_t words){
     if(bp == (void *)-1){
         return NULL;
     }
-    DEBUG_PRINT("bp %p , size %d", bp, size);
 
     PUT(HEADER(bp), PACK(size, 0));
-    DEBUG_PRINT("bp header %p, size %d", HEADER(bp), GET_SIZE(HEADER(bp)));
-
     PUT(FOOTER(bp), PACK(size, 0));
-    DEBUG_PRINT("bp footer %p, size %d", FOOTER(bp), GET_SIZE(HEADER(bp)));
+
+    DEBUG_PRINT("bp %p, header_bp %p, footer_bp %p, size %d, alloc %d", bp, HEADER(bp), FOOTER(bp), size, 0);
 
     //new epilogue block, update the address of epilogue block
-    PUT(HEADER(GET_NEXTBP(bp)), PACK(0,1));
-    DEBUG_PRINT("new epilogue blk %p", HEADER(GET_NEXTBP(bp)));
+    PUT(HEADER(GET_NEXTBP(bp)), PACK(0,1));    
+    DEBUG_PRINT("new epilogue blk %p, alloc %d", HEADER(GET_NEXTBP(bp)), 1);
 
+    
     PUT(GET_PREDP(bp), NULL);
     PUT(GET_SUCCP(bp), NULL);
 
@@ -212,93 +230,134 @@ static void * extend_heap(size_t words){
 }
 
 static void * imme_coalesce(void* bp){
-    char * header_bp = HEADER(bp);
-    size_t bp_size = GET_SIZE(header_bp);
+    
+    char * next_bp = GET_NEXTBP(bp);
+    char * prev_bp = GET_PREVBP(bp);
 
-    DEBUG_PRINT("bp %p, header_bp %p, bp size %d", bp ,header_bp, bp_size);
+    int next_bp_alloc = GET_ALLOC(HEADER(next_bp));
+    int prev_bp_alloc = GET_ALLOC(HEADER(prev_bp));
 
-    char * next_blk = GET_NEXTBP(bp);
-    char * prev_blk = GET_PREVBP(bp);
+    int next_bp_size = GET_SIZE(HEADER(next_bp));
+    int prev_bp_size = GET_SIZE(HEADER(prev_bp));
 
-    DEBUG_PRINT("next_blk %p", next_blk);
-    DEBUG_PRINT("prev_blk %p", prev_blk);
+    DEBUG_PRINT("bp %p, next_bp %p, next_bp_alloc %d, next_bp_size %d",
+     bp, next_bp, next_bp_alloc, next_bp_size);
 
-    int next_blk_alloc = GET_ALLOC(HEADER(next_blk));
-    int prev_blk_alloc = GET_ALLOC(prev_blk);
-
-    DEBUG_PRINT("next_blk_alloc %d", next_blk_alloc);
-    DEBUG_PRINT("prev_blk_alloc %d", prev_blk_alloc);
+    DEBUG_PRINT("bp %p, prev_bp %p, prev_bp_alloc %d, prev_bp_size %d",
+     bp, prev_bp, prev_bp_alloc, prev_bp_size);
 
     size_t size = GET_SIZE(HEADER(bp));
 
-    if(next_blk_alloc && prev_blk_alloc){
+    if(next_bp_alloc && prev_bp_alloc){
         
         return bp;
 
-    }else if( next_blk_alloc && ! prev_blk_alloc ){
+    }else if( next_bp_alloc && ! prev_bp_alloc ){
 
-        size += GET_SIZE(HEADER(prev_blk));
+        size += GET_SIZE(HEADER(prev_bp));
+        
+        DEBUG_PRINT("prev_bp %p, header_prev_bp %p, size %d, alloc 0", prev_bp, HEADER(prev_bp), size);
+        DEBUG_PRINT("prev_bp %p, footer_prev_bp %p, size 0, alloc 0", prev_bp, FOOTER(prev_bp));
+        DEBUG_PRINT("bp %p, header_bp %p, size 0, alloc 0", bp, FOOTER(bp));
+        DEBUG_PRINT("bp %p, footer_bp %p, size %d, alloc 0", bp, FOOTER(bp), size);
 
         //prev_blk is free
-        delete_blk(prev_blk);
+        if(prev_bp == bp){
 
-        PUT(HEADER(prev_blk), PACK(size, 0));
-        PUT(FOOTER(prev_blk), PACK(0, 0));
+            char * tmp_prev_footer = ((char *)bp - DSIZE);
+            size_t tmp_prev_s = GET_SIZE(tmp_prev_footer);
+            char * tmp_prev = bp - tmp_prev_s;
+
+            DEBUG_PRINT("tmp %p, tmp_prev %p, tmp_prev_s %d, tmp_prev_footer %p", bp, tmp_prev, tmp_prev_s, tmp_prev_footer );
+
+            
+        }else{
+            delete_blk(prev_bp);
+        }
+        
+
+        PUT(HEADER(prev_bp), PACK(size, 0));
+        PUT(FOOTER(prev_bp), PACK(0, 0));
         PUT(HEADER(bp), PACK(0, 0));
         PUT(FOOTER(bp), PACK(size, 0));
-        return prev_blk;
+
+        /*
+        ???
+        Core was generated by `./mdriver -V -f short1-bal.rep'.
+        Program terminated with signal 11, Segmentation fault.
+        #0  0x0804b21e in delete_blk (bp=0xf6990888 '\004' <repeats 200 times>...) at mm.c:309
+
+        warning: Source file is more recent than executable.
+        309             PUT(GET_SUCCP(bp), NULL);
+        Missing separate debuginfos, use: debuginfo-install glibc-2.17-326.el7_9.i686
+        (gdb) bt
+        #0  0x0804b21e in delete_blk (bp=0xf6990888 '\004' <repeats 200 times>...) at mm.c:309
+        #1  0x0804b091 in imme_coalesce (bp=0xf6990888) at mm.c:250
+        #2  0x0804b5a8 in mm_free (ptr=0xf6990888) at mm.c:471
+        #3  0x08049d8c in eval_mm_valid (trace=0x9fcb050, tracenum=0, ranges=0xff8ee5cc) at mdriver.c:674
+        #4  0x08049039 in main (argc=4, argv=0xff8ee6e4) at mdriver.c:296
+        */
+        return prev_bp;
     
-    }else if( ! next_blk_alloc && prev_blk_alloc ){
-        size += GET_SIZE(HEADER(next_blk));
+    }else if( ! next_bp_alloc && prev_bp_alloc ){
+        size += GET_SIZE(HEADER(next_bp));
         
         // next_blk is free
-        delete_blk(next_blk);
+        delete_blk(next_bp);
 
         PUT(HEADER(bp), PACK(size, 0));
         PUT(FOOTER(bp), PACK(0, 0));
 
-        PUT(HEADER(next_blk), PACK(0, 0));
-        PUT(FOOTER(next_blk), PACK(size, 0));
+        PUT(HEADER(next_bp), PACK(0, 0));
+        PUT(FOOTER(next_bp), PACK(size, 0));
         return bp;
         
     }else{
         // prev and next blk are free.
-        delete_blk(prev_blk);
-        delete_blk(next_blk);
+        delete_blk(prev_bp);
+        delete_blk(next_bp);
 
-        size += GET_SIZE(HEADER(prev_blk));
-        size += GET_SIZE(HEADER(next_blk));
+        size += GET_SIZE(HEADER(prev_bp));
+        size += GET_SIZE(HEADER(next_bp));
 
-        PUT(HEADER(prev_blk), PACK(size, 0));
-        PUT(FOOTER(prev_blk), PACK(0, 0));
+        PUT(HEADER(prev_bp), PACK(size, 0));
+        PUT(FOOTER(prev_bp), PACK(0, 0));
 
         PUT(HEADER(bp), PACK(0, 0));
         PUT(FOOTER(bp), PACK(0, 0));
 
-        PUT(HEADER(next_blk), PACK(0, 0));
-        PUT(FOOTER(next_blk), PACK(size, 0));
+        PUT(HEADER(next_bp), PACK(0, 0));
+        PUT(FOOTER(next_bp), PACK(size, 0));
 
-        return prev_blk;
+        return prev_bp;
     }
 }
 
 static void delete_blk(char * bp){
+    // print_seglist();
+    //update succ & pred
+    char * pred_bp = PRED(bp);
+    char * succ_bp = SUCC(bp);
 
-    char * pred_blk = PRED(bp);
-    char * succ_blk = SUCC(bp);
+    DEBUG_PRINT("bp %p, pred_bp %p, succ_bp %p", bp, pred_bp, succ_bp);
 
-    PUT(GET_SUCCP(pred_blk), succ_blk);
-    if(succ_blk != NULL){
-        PUT(GET_PREDP(succ_blk), pred_blk);
+    PUT(GET_SUCCP(pred_bp), succ_bp);
+    if(succ_bp != NULL){
+        PUT(GET_PREDP(succ_bp), pred_bp);
     }
 
+    print_seglist();
     return;
 }
 
 static char * add_blk(char * bp){
+
     size_t size = GET_SIZE(HEADER(bp));
     int idx = get_index(size);
     char * seglist_root = seglist + idx * WSIZE;
+
+    DEBUG_PRINT("bp %p, header_bp %p, footer_bp %p, size %d, alloc %d", bp, HEADER(bp), FOOTER(bp), 
+     GET_SIZE(HEADER(bp)), GET_ALLOC(HEADER(bp)));
 
     //call insertion policy
     bp = LIFO(bp, seglist_root);
@@ -307,12 +366,15 @@ static char * add_blk(char * bp){
 }
 
 static char* LIFO(char *bp, char *root){
+    //update pred & succ
     if(SUCC(root) == NULL){
 
+        DEBUG_PRINT("root %p, succ_root %p, bp %p", root, SUCC(root), bp);
         PUT(GET_SUCCP(bp), NULL);
     
     }else{
         char* old_succ = SUCC(root);
+        DEBUG_PRINT("root %p, succ_root %p, bp %p, old_succ %p", root, SUCC(root), bp, old_succ);
         PUT(GET_SUCCP(bp), old_succ);
         PUT(GET_PREDP(old_succ), bp);
     }
@@ -366,10 +428,13 @@ static char* first_fit(size_t size){
 }
 
 static void split_blk(char *bp, size_t size, size_t remain_size){
+    
     PUT(HEADER(bp), PACK(size, 1));
     PUT(FOOTER(bp), PACK(size, 1));
 
     char * remain_blk = GET_NEXTBP(bp); 
+
+    DEBUG_PRINT("bp %p, size %d, remain_blk %p, remain size %d", bp, size, remain_blk, remain_size);
     PUT(HEADER(remain_blk), PACK(remain_size, 0));
     PUT(FOOTER(remain_blk), PACK(remain_size, 0));
     add_blk(remain_blk);
@@ -380,6 +445,7 @@ static void split_blk(char *bp, size_t size, size_t remain_size){
 static void place(char * bp, size_t size){
     size_t remain_size;
     remain_size = GET_SIZE(HEADER(bp)) - size;
+    DEBUG_PRINT("bp %p", bp);
     delete_blk(bp);
 
     if(remain_size >= 2*DSIZE){
@@ -390,7 +456,8 @@ static void place(char * bp, size_t size){
         //set allocated flag
         PUT(HEADER(bp), PACK(GET_SIZE(HEADER(bp)), 1));
         PUT(FOOTER(bp), PACK(GET_SIZE(HEADER(bp)), 1));
-
+        DEBUG_PRINT("set allocated flag to 1 at bp %p", bp);
+        
     }
     return;
 }
@@ -412,6 +479,8 @@ void *mm_malloc(size_t size)
         place(bp, asize);
         return bp;
     }else{
+        DEBUG_PRINT("bp %p, size %d", bp, asize);
+
         bp = extend_heap(MAX(CHUNKSIZE, (asize+WSIZE-1))/WSIZE);
         if(bp == NULL){
             return NULL;
@@ -426,7 +495,9 @@ void *mm_malloc(size_t size)
  * mm_free - Freeing a block does nothing.
  */
 void mm_free(void *ptr){
+
     size_t size = GET_SIZE(HEADER(ptr));
+    DEBUG_PRINT("ptr %p, size %d", ptr, size);
 
     PUT(HEADER(ptr), PACK(size, 0));
     PUT(FOOTER(ptr), PACK(size, 0));
@@ -441,6 +512,7 @@ void mm_free(void *ptr){
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size){
+    DEBUG_PRINT("bp %p, size %d", ptr, size);
 
     if(ptr == NULL){
         return mm_malloc(size);
@@ -462,6 +534,7 @@ void *mm_realloc(void *ptr, size_t size){
 
     PUT(HEADER(newbp), PACK(new_size, 1));
     PUT(FOOTER(newbp), PACK(new_size, 1));
+    DEBUG_PRINT("set the allocated flag of bp %p to 1", newbp);
 
     if(newbp != ptr){
         memcpy(newbp, ptr, GET_SIZE(HEADER(ptr)) - DSIZE);
@@ -488,9 +561,7 @@ void *mm_realloc(void *ptr, size_t size){
         memcpy(ptr, newbp, (new_size - DSIZE));
         mm_free(newbp);
         return ptr;
-
     }
-
 }
 
 
