@@ -140,14 +140,14 @@ static void print_seglist(){
         while (SUCC(node))
         {
             node = SUCC(node);
-            LIST_PRINT("--> %p, %d",node , GET_SIZE(HEADER(node)));   
+            LIST_PRINT("--> %p, %d, %d",node , GET_SIZE(HEADER(node)),GET_SIZE(FOOTER(node)) );   
         }
 
         LIST_PRINT("--> %p \n",SUCC(node)); 
 
         while (node != seg_root)
         {   
-            LIST_PRINT("<-- %p, %d", node, GET_SIZE(HEADER(node)));
+            LIST_PRINT("<-- %p, %d, %d", node, GET_SIZE(HEADER(node)), GET_SIZE(FOOTER(node)));
             node = PRED(node);
              
         }
@@ -250,11 +250,8 @@ static void * imme_coalesce(void* bp){
      bp, prev_bp, prev_bp_alloc, prev_bp_size, GET_SIZE(HEADER(prev_bp)));
 
     DEBUG_PRINT("bp %p, prev_bp %p,  prev_bp_header %p, prev_bp_footer %p",bp, prev_bp ,HEADER(prev_bp), FOOTER(prev_bp));
-    char * tmp_prev_footer = ((char *)bp - DSIZE);
-    size_t tmp_prev_s = GET_SIZE(tmp_prev_footer);
-    char * tmp_prev = bp - tmp_prev_s;
-    DEBUG_PRINT("tmp %p, tmp_prev %p, tmp_prev_s %d, tmp_prev_footer %p", bp, tmp_prev, tmp_prev_s, tmp_prev_footer );
-
+    
+    
 
     size_t bp_size = GET_SIZE(HEADER(bp));
 
@@ -264,34 +261,39 @@ static void * imme_coalesce(void* bp){
 
     }else if( next_bp_alloc && ! prev_bp_alloc ){
 
-        DEBUG_PRINT("prev_bp %p, header_prev_bp %p, size %d, alloc 0", prev_bp, HEADER(prev_bp), bp_size);
-        DEBUG_PRINT("prev_bp %p, footer_prev_bp %p, size 0, alloc 0", prev_bp, FOOTER(prev_bp));
-        DEBUG_PRINT("bp %p, header_bp %p, size 0, alloc 0", bp, HEADER(bp));
-        DEBUG_PRINT("bp %p, footer_bp %p, size %d, alloc 0", bp, FOOTER(bp), bp_size);
-        
-        DEBUG_PRINT("prev_bp %p, new_size %d",prev_bp, bp_size);
-
         //prev_blk is free
         if(prev_bp == bp){
 
             char * tmp_prev_footer = ((char *)bp - DSIZE);
             size_t tmp_prev_s = GET_SIZE(tmp_prev_footer);
-            char * tmp_prev = bp - tmp_prev_s + DSIZE;
+            char * tmp_prev = bp - tmp_prev_s;
+            DEBUG_PRINT("tmp %p, tmp_prev %p, tmp_prev_s %d, tmp_prev_footer %p", bp, tmp_prev, tmp_prev_s, tmp_prev_footer );
 
-            PUT(HEADER(prev_bp), PACK(GET_SIZE(HEADER(prev_bp)), 0));
-            PUT(FOOTER(bp), PACK(GET_SIZE(HEADER(prev_bp)), 0));
-
-            DEBUG_PRINT("tmp %p, tmp_prev %p, tmp_prev_s(header) %d, tmp_prev_s(footer) %d",
-             bp, tmp_prev, tmp_prev_s, GET_SIZE(HEADER(tmp_prev)), GET_SIZE(tmp_prev_footer));
+            PUT(HEADER(bp), PACK(GET_SIZE(HEADER(bp)), 0));
+            PUT(FOOTER(bp), PACK(GET_SIZE(HEADER(bp)), 0));
         }else{
             bp_size += GET_SIZE(HEADER(prev_bp));
+            DEBUG_PRINT("prev_bp %p, new_size %d",prev_bp, bp_size);
 
             delete_blk(prev_bp);
+            char * prev_bp_header = HEADER(prev_bp);
+            char * prev_bp_footer = FOOTER(prev_bp);
 
-            PUT(HEADER(prev_bp), PACK(bp_size, 0));
-            PUT(FOOTER(prev_bp), PACK(0, 0));
-            PUT(HEADER(bp), PACK(0, 0));
-            PUT(FOOTER(bp), PACK(bp_size, 0));
+            char *bp_header = HEADER(bp);
+            char *bp_footer = FOOTER(bp);
+
+            PUT(prev_bp_header, PACK(bp_size, 0));
+            DEBUG_PRINT("prev_bp %p, header_prev_bp %p, size %d, alloc 0", prev_bp, prev_bp_header, bp_size);
+            
+            PUT(prev_bp_footer, PACK(0, 1));
+            DEBUG_PRINT("prev_bp %p, footer_prev_bp %p, size 0, alloc 0", prev_bp, prev_bp_footer);
+
+            PUT(bp_header, PACK(0, 1));
+            DEBUG_PRINT("bp %p, header_bp %p, size 0, alloc 0", bp, bp_header);
+
+            PUT(bp_footer, PACK(bp_size, 0));
+            DEBUG_PRINT("bp %p, footer_bp %p, size %d, alloc 0", bp, bp_footer, bp_size);
+
         }
         return prev_bp;
     
@@ -301,11 +303,19 @@ static void * imme_coalesce(void* bp){
         // next_blk is free
         delete_blk(next_bp);
 
-        PUT(HEADER(bp), PACK(bp_size, 0));
-        PUT(FOOTER(bp), PACK(0, 0));
+        char * bp_header = HEADER(bp);
+        char * bp_footer = FOOTER(bp);
 
-        PUT(HEADER(next_bp), PACK(0, 0));
-        PUT(FOOTER(next_bp), PACK(bp_size, 0));
+        char * next_bp_header = HEADER(next_bp);
+        char * next_bp_footer = FOOTER(next_bp);
+
+        PUT(bp_header, PACK(bp_size, 0));
+        PUT(bp_footer, PACK(0, 1));
+
+        PUT(next_bp_header, PACK(0, 1));
+        PUT(next_bp_footer, PACK(bp_size, 0));
+
+        DEBUG_PRINT("bp header %p, next_bp_footer %p, size %d",bp_header, next_bp_footer, bp_size);
         return bp;
         
     }else{
@@ -316,14 +326,25 @@ static void * imme_coalesce(void* bp){
         bp_size = bp_size + GET_SIZE(HEADER(prev_bp));
         bp_size = bp_size + GET_SIZE(HEADER(next_bp));
 
-        PUT(HEADER(prev_bp), PACK(bp_size, 0));
-        PUT(FOOTER(prev_bp), PACK(0, 0));
+        char * prev_bp_header = HEADER(prev_bp);
+        char * prev_bp_footer = FOOTER(prev_bp);
 
-        PUT(HEADER(bp), PACK(0, 0));
-        PUT(FOOTER(bp), PACK(0, 0));
+        char* bp_header = HEADER(bp);
+        char* bp_footer = FOOTER(bp);
 
-        PUT(HEADER(next_bp),PACK(0, 0));
-        PUT(FOOTER(next_bp), PACK(bp_size, 0));
+        char *next_bp_header = HEADER(next_bp);
+        char *next_bp_footer = FOOTER(next_bp);
+
+        PUT(prev_bp_header, PACK(bp_size, 0));
+        PUT(prev_bp_footer, PACK(0, 1));
+
+        PUT(bp_header, PACK(0, 1));
+        PUT(bp_footer, PACK(0, 1));
+
+        PUT(next_bp_header,PACK(0, 1));
+        PUT(next_bp_footer, PACK(bp_size, 0));
+
+        DEBUG_PRINT("prev_bp header %p, next_bp_footer %p, size %d",prev_bp_header, next_bp_footer, bp_size);
 
         return prev_bp;
     }
@@ -342,7 +363,7 @@ static void delete_blk(char * bp){
         PUT(GET_PREDP(succ_bp), pred_bp);
     }
 
-    print_seglist();
+    // print_seglist();
     return;
 }
 
@@ -357,11 +378,15 @@ static char * add_blk(char * bp){
 
     //call insertion policy
     bp = LIFO(bp, seglist_root);
+    DEBUG_PRINT("bp %p, size_header %d, size_footer %d", bp, GET_SIZE(HEADER(bp)), GET_SIZE(FOOTER(bp)));
+    // print_seglist();
+    
 
     return bp;
 }
 
 static char* LIFO(char *bp, char *root){
+    
     //update pred & succ
     if(SUCC(root) == NULL){
 
@@ -377,8 +402,11 @@ static char* LIFO(char *bp, char *root){
 
     PUT(GET_SUCCP(root), bp);
     PUT(GET_PREDP(bp), root);
-    print_seglist();
 
+    DEBUG_PRINT("bp %p, size_header %d, size_footer %d", bp, GET_SIZE(HEADER(bp)), GET_SIZE(FOOTER(bp)));
+
+    // print_seglist();
+    
     return bp;
 }
 
@@ -410,12 +438,17 @@ static char* first_fit(size_t size){
     while(idx <=8){
         seglist_root = seglist + idx * WSIZE; 
         succ = SUCC(seglist_root);
+        DEBUG_PRINT("root %p, succ %p", seglist_root, succ);
 
         while(succ != NULL ){
             if(GET_SIZE(HEADER(succ)) >= size){
+                DEBUG_PRINT("succ %p, succ_header %p, succ_footer %p", succ, HEADER(succ), FOOTER(succ));
+                DEBUG_PRINT("succ %p , size %d, size %d", succ, GET_SIZE(HEADER(succ)), GET_SIZE(FOOTER(succ)));
                 return succ;
             }else{
+                DEBUG_PRINT("succ %p, succ_size %d", succ, GET_SIZE(HEADER(succ)));
                 succ = SUCC(succ);
+                
             }
         }
         idx++;
@@ -428,33 +461,48 @@ static void split_blk(char *bp, size_t size, size_t remain_size){
     
     PUT(HEADER(bp), PACK(size, 1));
     PUT(FOOTER(bp), PACK(size, 1));
+    DEBUG_PRINT("bp %p, bp_header %p, bp_footer %p, bp_size_header %d, bp_size_footer %d",
+    bp, HEADER(bp), FOOTER(bp),GET_SIZE(HEADER(bp)), GET_SIZE(FOOTER(bp)));
 
     char * remain_blk = GET_NEXTBP(bp); 
 
     DEBUG_PRINT("bp %p, size %d, remain_blk %p, remain size %d", bp, size, remain_blk, remain_size);
+    DEBUG_PRINT("remain_blk %p, remain_blk_header %p", 
+    remain_blk, HEADER(remain_blk));
+
     PUT(HEADER(remain_blk), PACK(remain_size, 0));
+
+    DEBUG_PRINT("remain_blk %p, remain_blk_header %p, remain_blk_footer %p", 
+    remain_blk, HEADER(remain_blk), FOOTER(remain_blk));
+    
     PUT(FOOTER(remain_blk), PACK(remain_size, 0));
+    
     add_blk(remain_blk);
 
     return;
 }
-
+/*
+size : mm_malloc need bytes
+bp : free blk that contain at least size bytes
+*/
 static void place(char * bp, size_t size){
     size_t remain_size;
     remain_size = GET_SIZE(HEADER(bp)) - size;
-    DEBUG_PRINT("bp %p", bp);
+    DEBUG_PRINT("bp %p, size %d", bp, size);
     delete_blk(bp);
 
     if(remain_size >= 2*DSIZE){
         //splitting policy
+        DEBUG_PRINT("bp %p, size %d, remain_size %d", bp, size, remain_size);
         split_blk(bp, size, remain_size);
+        DEBUG_PRINT("bp %p, size %d, remain_size %d", bp, size, remain_size);
 
     }else{   
         //set allocated flag
+        DEBUG_PRINT("bp %p, bp_header %p, bp_footer %p",bp, HEADER(bp), FOOTER(bp));
         PUT(HEADER(bp), PACK(GET_SIZE(HEADER(bp)), 1));
         PUT(FOOTER(bp), PACK(GET_SIZE(HEADER(bp)), 1));
-        DEBUG_PRINT("set allocated flag to 1 at bp %p", bp);
-        
+        DEBUG_PRINT("bp %p, bp_header %p, bp_footer %p",bp, HEADER(bp), FOOTER(bp));
     }
     return;
 }
@@ -464,19 +512,33 @@ static void place(char * bp, size_t size){
  *     Always allocate a block whose size is a multiple of the alignment.
  */
 void *mm_malloc(size_t size)
-{
+{   
+
+    DEBUG_PRINT("size %d", size);
     size_t asize;
     char *bp;
 
-    asize = (size < 2*DSIZE ? 2*DSIZE : (size + 2*DSIZE +DSIZE) & ~(0xF));
+    asize = ( size <= DSIZE ? 2*DSIZE : DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE) );
 
     bp = first_fit(asize);
 
+    DEBUG_PRINT("first_fit return, bp %p, asize %d", bp, asize);
+   
+
     if(bp !=NULL){
+
+        DEBUG_PRINT("bp %p, asize(mm_malloc need size) %d, bp_size_header %d, bp_size_footer %d", 
+        bp, asize, GET_SIZE(HEADER(bp)), GET_SIZE(FOOTER(bp)));
         place(bp, asize);
+
+        DEBUG_PRINT("place return, bp %p, asize %d, bp_size_header %d, bp_size_footer %d", 
+        bp, asize, GET_SIZE(HEADER(bp)), GET_SIZE(FOOTER(bp)));
+
         return bp;
+    
     }else{
-        DEBUG_PRINT("bp %p, size %d", bp, asize);
+
+        DEBUG_PRINT("bp %p, asize %d", bp, asize);
 
         bp = extend_heap(MAX(CHUNKSIZE, (asize+WSIZE-1))/WSIZE);
         if(bp == NULL){
@@ -484,6 +546,8 @@ void *mm_malloc(size_t size)
         }
 
         place(bp, asize);
+
+        DEBUG_PRINT("extend_heap, return bp %p, size %d",bp, GET_SIZE(HEADER(bp)));
         return bp;
     }
 }

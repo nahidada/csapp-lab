@@ -28,5 +28,8 @@ handin:
 clean:
 	rm -f *~ *.o mdriver
 	rm -f debug.log
+	rm -f core
+	rm -f mdriver.log
+	
 
 

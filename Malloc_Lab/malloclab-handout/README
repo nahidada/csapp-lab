@@ -50,3 +50,17 @@ To get a list of the driver flags:
 
 	unix> mdriver -h
 
+
+### gdb
+
+gdb ./mdriver
+
+b mm.c:373 if size >= 1424 && size < 1448
+set args -f ./traces/amptjp-bal.rep
+run
+
+b mdriver.c:625
+gdb --args ./mdriver -f ./traces/amptjp-bal.rep
+
+info b
+delete breakpoint_id

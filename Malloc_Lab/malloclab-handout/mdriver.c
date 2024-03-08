@@ -8,6 +8,9 @@
  * May not be used, modified, or copied without permission.
  */
 #include <stdio.h>
+
+#include <stdarg.h>
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
@@ -131,7 +134,7 @@ static void usage(void);
 static void unix_error(char *msg);
 static void malloc_error(int tracenum, int opnum, char *msg);
 static void app_error(char *msg);
-
+static void mm_malloc_debug(FILE *file, const char *format, ...);
 /**************
  * Main routine
  **************/
@@ -583,6 +586,8 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
     char *newp;
     char *oldp;
     char *p;
+
+	FILE *logFile = fopen("mdriver.log", "a");
     
     /* Reset the heap and free any records in the range list */
     mem_reset_brk();
@@ -605,17 +610,27 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
 
 	    /* Call the student's malloc */
 	    if ((p = mm_malloc(size)) == NULL) {
-		malloc_error(tracenum, i, "mm_malloc failed.");
-		return 0;
-	    }
+			malloc_error(tracenum, i, "mm_malloc failed.");
+			return 0;
+	    }else{
+			//debug mm_malloc
+			if (logFile != NULL) {
+				mm_malloc_debug(logFile, "mm_malloc p %p\n",p );
+				 
+			} else {
+				printf("can't open debug file\n");
+			}
+		}
 	    
 	    /* 
 	     * Test the range of the new block for correctness and add it 
 	     * to the range list if OK. The block must be  be aligned properly,
 	     * and must not overlap any currently allocated block. 
 	     */ 
-	    if (add_range(ranges, p, size, tracenum, i) == 0)
-		return 0;
+	    if (add_range(ranges, p, size, tracenum, i) == 0){
+			return 0;
+		}
+		
 	    
 	    /* ADDED: cgw
 	     * fill range with low byte of index.  This will be used later
@@ -623,6 +638,7 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
 	     * data was copied to the new block
 	     */
 	    memset(p, index & 0xFF, size);
+		mm_malloc_debug(logFile, "add_range p %p, size %d \n" ,p, size);
 
 	    /* Remember region */
 	    trace->blocks[index] = p;
@@ -679,6 +695,7 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
         }
 
     }
+	fclose(logFile);
 
     /* As far as we know, this is a valid malloc package */
     return 1;
@@ -997,6 +1014,17 @@ void malloc_error(int tracenum, int opnum, char *msg)
 {
     errors++;
     printf("ERROR [trace %d, line %d]: %s\n", tracenum, LINENUM(opnum), msg);
+}
+
+/*
+* mm_malloc_debug - Report mm_malloc info
+*/
+
+static void mm_malloc_debug(FILE *file, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    vfprintf(file, format, args);
+    va_end(args);
 }
 
 /* 

@@ -1,10 +1,10 @@
 
 void main(){
 
-    char *p = 0xf6962034;
-    printf("p %p \n", p);
+    char *p = 0xf;
+    printf("p %p,  %d\n", p, p);
 
-    p = p + 6096;
-    printf("p %p \n", p);
+    p = p -1;
+    printf("p %p, %d \n", p, p);
     return;
 }
