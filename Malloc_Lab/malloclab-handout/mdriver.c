@@ -28,6 +28,8 @@
  * Constants and macros
  **********************/
 
+# define MD_DEBUG_LEVEL 1
+
 /* Misc */
 #define MAXLINE     1024 /* max string size */
 #define HDRLINES       4 /* number of header lines in a trace file */
@@ -614,11 +616,9 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
 			return 0;
 	    }else{
 			//debug mm_malloc
-			if (logFile != NULL) {
+			if (logFile != NULL && MD_DEBUG_LEVEL > 1 ) {
 				mm_malloc_debug(logFile, "mm_malloc p %p\n",p );
 				 
-			} else {
-				printf("can't open debug file\n");
 			}
 		}
 	    
@@ -638,7 +638,10 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
 	     * data was copied to the new block
 	     */
 	    memset(p, index & 0xFF, size);
-		mm_malloc_debug(logFile, "add_range p %p, size %d \n" ,p, size);
+		if(MD_DEBUG_LEVEL > 1){
+			mm_malloc_debug(logFile, "add_range p %p, size %d \n" ,p, size);
+		}
+		
 
 	    /* Remember region */
 	    trace->blocks[index] = p;

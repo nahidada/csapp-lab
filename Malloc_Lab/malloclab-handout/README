@@ -64,3 +64,20 @@ gdb --args ./mdriver -f ./traces/amptjp-bal.rep
 
 info b
 delete breakpoint_id
+
+
+[root@edb3963640a6 malloclab-handout]# ulimit -c unlimited
+[root@edb3963640a6 malloclab-handout]# ./mdriver -f ./traces/realloc-bal.rep -V
+Team Name:Nahida_team
+Member 1 :Nahida:nahida@cs.cmu.edu
+Measuring performance with gettimeofday().
+
+Testing mm malloc
+Reading tracefile: ./traces/realloc-bal.rep
+Segmentation fault (core dumped)
+
+b mm.c:586
+b mm.c:593
+b mm.c:596
+b mm.c:613
+b mm.c:615
